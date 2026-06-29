@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Device admin policies for kiosk mode lockdown.
+     Only request the minimum policies required for exam integrity.
+     WARNING: Adding wipe-data, reset-password, or limit-password here
+     grants the app extreme capabilities — audit before enabling. -->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <force-lock />
+        <encrypted-storage />
+        <disable-camera />
+        <disable-keyguard-features />
+    </uses-policies>
+</device-admin>

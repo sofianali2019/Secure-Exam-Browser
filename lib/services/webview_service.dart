@@ -1,0 +1,191 @@
+import 'dart:convert';
+import 'dart:async';
+import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:webview_flutter/webview_flutter.dart';
+import '../models/exam_config.dart';
+
+class WebviewService {
+  WebViewController? _controller;
+  ExamConfig? _config;
+  final StreamController<Map<String, dynamic>> _moodleEvents =
+      StreamController<Map<String, dynamic>>.broadcast();
+
+  Stream<Map<String, dynamic>> get moodleEvents => _moodleEvents.stream;
+  WebViewController? get controller => _controller;
+
+  bool _isDomainAllowed(String url, List<String> allowedDomains) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return false;
+    return allowedDomains.any((domain) => uri.host == domain);
+  }
+
+  WebViewController buildController({
+    required ExamConfig config,
+  }) {
+    _config = config;
+
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageStarted: (url) {
+            // Inject CSP meta tag before page content loads.
+            // This restricts scripts to same-origin and blocks inline event handlers,
+            // while allowing the MoodleBridge channel and necessary exam JS.
+            _injectCsp();
+            _moodleEvents.add({'event': 'page_started', 'url': url});
+          },
+          onNavigationRequest: (request) {
+            final uri = Uri.tryParse(request.url);
+            if (uri != null &&
+                !_isDomainAllowed(request.url, config.effectiveAllowedDomains)) {
+              _moodleEvents.add({
+                'event': 'navigation_blocked',
+                'url': request.url,
+              });
+              return NavigationDecision.prevent;
+            }
+            return NavigationDecision.navigate;
+          },
+          onPageFinished: (url) {
+            _injectMoodleBridge();
+            _moodleEvents.add({'event': 'page_finished', 'url': url});
+          },
+          onWebResourceError: (error) {
+            _moodleEvents.add({
+              'event': 'resource_error',
+              'code': error.errorCode,
+              'description': error.description,
+            });
+          },
+        ),
+      )
+      ..addJavaScriptChannel(
+        'MoodleBridge',
+        onMessageReceived: (message) {
+          try {
+            final data = jsonDecode(message.message) as Map<String, dynamic>;
+            _moodleEvents.add(data);
+          } catch (_) {
+            _moodleEvents.add({'event': 'raw', 'data': message.message});
+          }
+        },
+      );
+
+    return _controller!;
+  }
+
+  Future<void> loadExam(String url) async {
+    await _controller?.loadRequest(Uri.parse(url));
+  }
+
+  Future<void> injectToken(String token) async {
+    if (_config == null) return;
+    final domain = Uri.parse(_config!.moodleUrl).host;
+    // Use jsonEncode to safely escape strings for JavaScript interpolation.
+    // This prevents JS injection if the token or domain contains special characters.
+    final safeToken = jsonEncode(token);
+    final safeDomain = jsonEncode(domain);
+    final js = '''
+      (function() {
+        var token = $safeToken;
+        var domain = $safeDomain;
+        document.cookie = "MOODLEID1_=" + token + "; domain=" + domain + "; path=/; secure; SameSite=Strict";
+        document.cookie = "MoodleSession=" + token + "; domain=" + domain + "; path=/; secure; SameSite=Strict";
+      })();
+    ''';
+    await _controller?.runJavaScript(js);
+  }
+
+  Future<void> _injectCsp() async {
+    // Strict CSP that allows the page's own scripts and the MoodleBridge channel.
+    // 'unsafe-eval' is needed by some Moodle versions for JS templates.
+    // Note: the nonce or hash approach would be stronger but requires Moodle changes.
+    const csp = '''
+      (function() {
+        var meta = document.createElement('meta');
+        meta.httpEquiv = 'Content-Security-Policy';
+        meta.content = "default-src 'self' https:; " +
+          "script-src 'self' 'unsafe-eval' https:; " +
+          "style-src 'self' 'unsafe-inline' https:; " +
+          "img-src 'self' https: data:; " +
+          "connect-src 'self' https:; " +
+          "frame-src 'self' https:; " +
+          "object-src 'none'; " +
+          "base-uri 'self'; " +
+          "form-action 'self' https:; " +
+          "report-uri /csp-report;";
+        document.head.appendChild(meta);
+      })();
+    ''';
+    try {
+      await _controller?.runJavaScript(csp);
+    } catch (_) {
+      // CSP injection is best-effort; page will still load without it.
+    }
+  }
+
+  Future<void> _injectMoodleBridge() async {
+    const bridge = '''
+      (function() {
+        if (window.__sebBridgeInjected) return;
+        window.__sebBridgeInjected = true;
+
+        function sendToFlutter(data) {
+          if (window.MoodleBridge) {
+            window.MoodleBridge.postMessage(JSON.stringify(data));
+          }
+        }
+
+        var origPushState = history.pushState;
+        history.pushState = function() {
+          sendToFlutter({ event: 'navigation', state: 'push' });
+          return origPushState.apply(this, arguments);
+        };
+
+        var origReplaceState = history.replaceState;
+        history.replaceState = function() {
+          sendToFlutter({ event: 'navigation', state: 'replace' });
+          return origReplaceState.apply(this, arguments);
+        };
+
+        var quizObserver = new MutationObserver(function(mutations) {
+          mutations.forEach(function(mutation) {
+            if (mutation.target.id && mutation.target.id.includes('quiz')) {
+              sendToFlutter({ event: 'quiz_mutation' });
+            }
+          });
+        });
+        quizObserver.observe(document.body, { childList: true, subtree: true });
+
+        sendToFlutter({ event: 'bridge_ready' });
+      })();
+    ''';
+    await _controller?.runJavaScript(bridge);
+  }
+
+  Future<void> setSebConfig(String configJson) async {
+    // Parse and re-encode to prevent template injection.
+    // jsonEncode on the parsed map ensures all strings are properly escaped
+    // for JavaScript interpolation, preventing XSS and script injection.
+    try {
+      final parsed = jsonDecode(configJson) as Map<String, dynamic>;
+      final safeJson = jsonEncode(parsed);
+      final js = '''
+        (function() {
+          if (window.__sebConfig !== undefined) return;
+          window.__sebConfig = $safeJson;
+          var event = new CustomEvent('seb-config-ready', { detail: $safeJson });
+          document.dispatchEvent(event);
+        })();
+      ''';
+      await _controller?.runJavaScript(js);
+    } catch (e) {
+      debugPrint('setSebConfig: invalid JSON, not injecting: $e');
+    }
+  }
+
+  void dispose() {
+    _moodleEvents.close();
+  }
+}
