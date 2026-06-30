@@ -2,7 +2,7 @@ class AppDefaults {
   AppDefaults._();
 
   static const String appName = 'Secure Exam Browser';
-  static const String moodleBaseUrl = 'https://moodle.example.com';
+  static const String moodleBaseUrl = 'https://subsaharanlms.com';
   static const String oauth2ClientId = 'secure_exam_browser';
   static const String oauth2RedirectUrl =
       'com.exambrowser.secure_exam_browser://oauth2/callback';

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import '../config/defaults.dart';
 import '../models/exam_config.dart';
 import '../models/auth_state.dart';
 import '../models/lockdown_state.dart';
@@ -11,6 +13,9 @@ import '../services/proctoring_service.dart';
 import '../services/config_service.dart';
 
 class AppProvider extends ChangeNotifier {
+  static const _lmsUrlKey = 'lms_url';
+  final FlutterSecureStorage _storage = const FlutterSecureStorage();
+
   final AuthService authService = AuthService();
   final LockdownService lockdownService = LockdownService();
   final WebviewService webviewService = WebviewService();
@@ -21,10 +26,12 @@ class AppProvider extends ChangeNotifier {
   bool _isInitialized = false;
   bool _isLoginInProgress = false;
   String? _errorMessage;
+  String _moodleBaseUrl = AppDefaults.moodleBaseUrl;
 
   bool get isInitialized => _isInitialized;
   bool get isLoginInProgress => _isLoginInProgress;
   String? get errorMessage => _errorMessage;
+  String get moodleBaseUrl => _moodleBaseUrl;
 
   /// Convenience accessors so screens don't reach into services directly.
   AuthState get authState => authService.state.value;
@@ -36,9 +43,11 @@ class AppProvider extends ChangeNotifier {
   Stream<Map<String, dynamic>> get moodleEvents => webviewService.moodleEvents;
   WebViewController? get webviewController => webviewService.controller;
 
-  Future<void> initialize({required String moodleBaseUrl}) async {
+  Future<void> initialize({String? moodleBaseUrl}) async {
     try {
-      authService.configure(moodleBaseUrl: moodleBaseUrl);
+      final saved = await _storage.read(key: _lmsUrlKey);
+      _moodleBaseUrl = moodleBaseUrl ?? saved ?? AppDefaults.moodleBaseUrl;
+      authService.configure(moodleBaseUrl: _moodleBaseUrl);
       await authService.init();
       _isInitialized = true;
       _errorMessage = null;
@@ -50,14 +59,21 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> login() async {
+  Future<void> setLmsUrl(String url) async {
+    _moodleBaseUrl = url;
+    await _storage.write(key: _lmsUrlKey, value: url);
+    authService.configure(moodleBaseUrl: url);
+    notifyListeners();
+  }
+
+  Future<void> login(String username, String password) async {
     if (_isLoginInProgress) return;
     _isLoginInProgress = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      await authService.login();
+      await authService.login(username, password);
       if (authService.state.value.error != null) {
         _errorMessage = authService.state.value.error;
       }
@@ -88,8 +104,8 @@ class AppProvider extends ChangeNotifier {
 
       webviewService.buildController(config: config);
 
-      if (authService.state.value.accessToken != null) {
-        await webviewService.injectToken(authService.state.value.accessToken!);
+      if (authService.state.value.token != null) {
+        await webviewService.injectToken(authService.state.value.token!);
       }
 
       await webviewService.loadExam(config.moodleUrl);

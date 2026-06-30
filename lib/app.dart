@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/dashboard_screen.dart';
 import 'screens/exam_screen.dart';
 import 'screens/results_screen.dart';
 
@@ -23,6 +24,7 @@ class SecureExamBrowserApp extends StatelessWidget {
       routes: {
         '/': (_) => const SplashScreen(),
         '/login': (_) => const LoginScreen(),
+        '/dashboard': (_) => const DashboardScreen(),
         '/exam': (_) => const ExamScreen(),
         '/results': (_) => const ResultsScreen(),
       },

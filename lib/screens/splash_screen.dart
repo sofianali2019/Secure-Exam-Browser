@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../config/defaults.dart';
 import '../providers/app_provider.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -19,9 +18,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _initApp() async {
     final provider = context.read<AppProvider>();
-    await provider.initialize(
-      moodleBaseUrl: AppDefaults.moodleBaseUrl,
-    );
+    await provider.initialize();
     if (!mounted) return;
 
     await Future.delayed(const Duration(milliseconds: 500));
@@ -35,7 +32,7 @@ class _SplashScreenState extends State<SplashScreen> {
     }
 
     if (provider.authState.isAuthenticated) {
-      Navigator.pushReplacementNamed(context, '/exam');
+      Navigator.pushReplacementNamed(context, '/dashboard');
     } else {
       Navigator.pushReplacementNamed(context, '/login');
     }
