@@ -2,9 +2,9 @@ name: Build Secure Exam Browser
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, master, develop]
   pull_request:
-    branches: [main]
+    branches: [main, master]
   release:
     types: [published]
 
@@ -17,7 +17,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.16.x
+          flutter-version: 3.41.0
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
@@ -31,9 +31,9 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.16.x
+          flutter-version: 3.41.0
       - run: flutter pub get
-      - run: flutter build apk --release --obfuscate --split-debug-info=build/debug-info
+      - run: flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
@@ -48,10 +48,10 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.16.x
+          flutter-version: 3.41.0
           architecture: x64
       - run: flutter pub get
-      - run: flutter build ios --release --no-codesign --obfuscate --split-debug-info=build/debug-info
+      - run: flutter build ios --release --no-codesign
       - uses: actions/upload-artifact@v4
         with:
           name: ios-ipa
@@ -66,9 +66,9 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.16.x
+          flutter-version: 3.41.0
       - run: flutter pub get
-      - run: flutter build windows --release --obfuscate --split-debug-info=build/debug-info
+      - run: flutter build windows --release
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
@@ -83,10 +83,10 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.16.x
+          flutter-version: 3.41.0
           architecture: x64
       - run: flutter pub get
-      - run: flutter build macos --release --obfuscate --split-debug-info=build/debug-info
+      - run: flutter build macos --release
       - uses: actions/upload-artifact@v4
         with:
           name: macos-bundle
