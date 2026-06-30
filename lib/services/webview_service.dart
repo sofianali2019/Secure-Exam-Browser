@@ -131,6 +131,13 @@ class WebviewService {
         if (window.__sebBridgeInjected) return;
         window.__sebBridgeInjected = true;
 
+        // Redirect popups (like Moodle quiz attempts) into the same WebView
+        var _origWindowOpen = window.open;
+        window.open = function(url) {
+          if (url) window.location.href = url;
+          return _origWindowOpen ? _origWindowOpen.call(window, '') : window;
+        };
+
         function sendToFlutter(data) {
           if (window.MoodleBridge) {
             window.MoodleBridge.postMessage(JSON.stringify(data));

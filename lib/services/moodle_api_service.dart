@@ -81,6 +81,44 @@ class MoodleApiService {
         .toList();
   }
 
+  Future<List<CourseInfo>> getUserCourses(int userId) async {
+    final params = <String, dynamic>{
+      'userid': userId.toString(),
+    };
+    final body = <String, dynamic>{
+      'wstoken': token,
+      'wsfunction': 'core_enrol_get_users_courses',
+      'moodlewsrestformat': 'json',
+    };
+    body.addAll(params);
+
+    final response = await _client.post(
+      Uri.parse('$baseUrl/webservice/rest/server.php'),
+      body: body,
+    );
+
+    if (response.statusCode != 200) {
+      throw MoodleApiException(
+        'HTTP ${response.statusCode}',
+        httpStatus: response.statusCode,
+      );
+    }
+
+    final decoded = jsonDecode(response.body);
+    if (decoded is Map && decoded.containsKey('exception')) {
+      throw MoodleApiException(
+        decoded['message'] as String? ?? 'Moodle error',
+        errorCode: decoded['errorcode'] as String?,
+      );
+    }
+    if (decoded is List) {
+      return decoded
+          .map((e) => CourseInfo.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    return [];
+  }
+
   Future<Map<int, List<QuizInfo>>> getCourseQuizzes(List<int> courseIds) async {
     final params = <String, dynamic>{};
     for (var i = 0; i < courseIds.length; i++) {
@@ -114,11 +152,37 @@ class MoodleApiService {
   }
 
   Future<List<CourseInfo>> getAllCourses() async {
-    final data = await _call(function: 'core_course_get_courses');
-    final coursesJson = data['courses'] as List<dynamic>? ?? [];
-    return coursesJson
-        .map((e) => CourseInfo.fromJson(e as Map<String, dynamic>))
-        .toList();
+    final body = <String, dynamic>{
+      'wstoken': token,
+      'wsfunction': 'core_course_get_courses',
+      'moodlewsrestformat': 'json',
+    };
+
+    final response = await _client.post(
+      Uri.parse('$baseUrl/webservice/rest/server.php'),
+      body: body,
+    );
+
+    if (response.statusCode != 200) {
+      throw MoodleApiException(
+        'HTTP ${response.statusCode}',
+        httpStatus: response.statusCode,
+      );
+    }
+
+    final decoded = jsonDecode(response.body);
+    if (decoded is Map && decoded.containsKey('exception')) {
+      throw MoodleApiException(
+        decoded['message'] as String? ?? 'Moodle error',
+        errorCode: decoded['errorcode'] as String?,
+      );
+    }
+    if (decoded is List) {
+      return decoded
+          .map((e) => CourseInfo.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    return [];
   }
 
   Future<Map<String, dynamic>> getQuizAccessInfo(int quizId) async {

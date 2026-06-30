@@ -88,7 +88,10 @@ class AppProvider extends ChangeNotifier {
     isLoadingCourses = true;
     notifyListeners();
     try {
-      final courses = await _moodleApi!.getEnrolledCourses();
+      final userId = authService.userInfo?.userId;
+      final courses = userId != null
+          ? await _moodleApi!.getUserCourses(userId)
+          : await _moodleApi!.getEnrolledCourses();
       enrolledCourses = courses;
       return courses;
     } finally {

@@ -109,26 +109,52 @@ class MoodleFixtures {
   };
 
   // ---------------------------------------------------------------------------
-  // core_course_get_courses
+  // core_course_get_courses (returns a JSON array, not a map)
   // ---------------------------------------------------------------------------
 
-  static Map<String, dynamic> get allCourses => {
-    'courses': [
-      {
-        'id': 1,
-        'shortname': 'CS101',
-        'fullname': 'Computer Science 101',
-        'displayname': 'CS 101',
-        'summary': 'Intro to CS',
-        'coursecategory': 'Science',
-        'startdate': 1704067200,
-        'enddate': 1711843200,
-        'isfavourite': false,
-        'hidden': false,
-      },
-    ],
-    'warnings': [],
-  };
+  // ---------------------------------------------------------------------------
+  // core_enrol_get_users_courses (returns a JSON array)
+  // ---------------------------------------------------------------------------
+
+  static List<Map<String, dynamic>> get userCourses => [
+    {
+      'id': 3,
+      'shortname': 'MAT101',
+      'fullname': 'Mathematics 101',
+      'displayname': 'Mathematics 101',
+      'summary': '<p>Introduction to Algebra</p>',
+      'startdate': 1704067200,
+      'enddate': 1711843200,
+      'coursecategory': 'Science',
+      'visible': true,
+    },
+    {
+      'id': 5,
+      'shortname': 'PHY101',
+      'fullname': 'Physics 101',
+      'displayname': 'Physics 101',
+      'summary': '<p>Mechanics</p>',
+      'startdate': 1704067200,
+      'enddate': 1711843200,
+      'coursecategory': 'Science',
+      'visible': true,
+    },
+  ];
+
+  static List<Map<String, dynamic>> get allCourses => [
+    {
+      'id': 1,
+      'shortname': 'CS101',
+      'fullname': 'Computer Science 101',
+      'displayname': 'CS 101',
+      'summary': 'Intro to CS',
+      'coursecategory': 'Science',
+      'startdate': 1704067200,
+      'enddate': 1711843200,
+      'isfavourite': false,
+      'hidden': false,
+    },
+  ];
 
   // ---------------------------------------------------------------------------
   // mod_quiz_get_quiz_access_information
@@ -172,6 +198,8 @@ class MoodleFixtures {
   static String get emptyQuizzesJson => jsonEncode(emptyQuizzes);
   static String get userAttemptsJson => jsonEncode(userAttempts);
   static String get noAttemptsJson => jsonEncode(noAttempts);
+  static String get userCoursesJson => jsonEncode(userCourses);
+  static List<Map<String, dynamic>> get emptyUserCourses => [];
   static String get allCoursesJson => jsonEncode(allCourses);
   static String get quizAccessInfoJson => jsonEncode(quizAccessInfo);
   static String get moodleExceptionJson => jsonEncode(moodleException);

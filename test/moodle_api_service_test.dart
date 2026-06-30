@@ -8,28 +8,29 @@ import 'package:secure_exam_browser/services/moodle_api_service.dart';
 
 import 'fixtures/moodle_responses.dart';
 
-/// Options bag for [MockClient] that lets each test control behaviour without
-/// writing a full handler closure.
-class MockClientOptions {
-  /// When set, the handler returns [overrideBody] only for this function.
-  final String? functionOverride;
+  /// Options bag for [MockClient] that lets each test control behaviour without
+  /// writing a full handler closure.
+  class MockClientOptions {
+    /// When set, the handler returns [overrideBody] only for this function.
+    final String? functionOverride;
 
-  /// The response body to return for the overridden function.
-  final Map<String, dynamic>? overrideBody;
+    /// The response body to return for the overridden function.
+    /// Must be JSON-encodable (Map, List, etc.).
+    final Object? overrideBody;
 
-  /// Non-200 status to force (applied to all responses).
-  final int? statusCodeOverride;
+    /// Non-200 status to force (applied to all responses).
+    final int? statusCodeOverride;
 
-  /// When `true` the client throws a [http.ClientException].
-  final bool networkError;
+    /// When `true` the client throws a [http.ClientException].
+    final bool networkError;
 
-  const MockClientOptions({
-    this.functionOverride,
-    this.overrideBody,
-    this.statusCodeOverride,
-    this.networkError = false,
-  });
-}
+    const MockClientOptions({
+      this.functionOverride,
+      this.overrideBody,
+      this.statusCodeOverride,
+      this.networkError = false,
+    });
+  }
 
 /// Builds a [MockClient] handler that routes on `wsfunction` from the POST
 /// body and supports per-test overrides via [MockClientOptions].
@@ -73,6 +74,11 @@ Future<http.Response> Function(http.Request) _mockHandler([
       case 'mod_quiz_get_user_attempts':
         return http.Response(
           MoodleFixtures.userAttemptsJson,
+          options.statusCodeOverride ?? 200,
+        );
+      case 'core_enrol_get_users_courses':
+        return http.Response(
+          MoodleFixtures.userCoursesJson,
           options.statusCodeOverride ?? 200,
         );
       case 'core_course_get_courses':
@@ -193,6 +199,58 @@ void main() {
         expect(
           () => api.getEnrolledCourses(),
           throwsA(isA<http.ClientException>()),
+        );
+      });
+    });
+
+    group('getUserCourses', () {
+      test('returns list of enrolled courses for a user', () async {
+        final client = MockClient(_mockHandler());
+        final api = MoodleApiService(
+          baseUrl: testBaseUrl,
+          token: testToken,
+          client: client,
+        );
+
+        final courses = await api.getUserCourses(5);
+
+        expect(courses, hasLength(2));
+        expect(courses[0].id, 3);
+        expect(courses[0].fullName, 'Mathematics 101');
+        expect(courses[1].id, 5);
+        expect(courses[1].fullName, 'Physics 101');
+      });
+
+      test('returns empty list when user has no courses', () async {
+        final client = MockClient(_mockHandler(MockClientOptions(
+          functionOverride: 'core_enrol_get_users_courses',
+          overrideBody: MoodleFixtures.emptyUserCourses,
+        )));
+        final api = MoodleApiService(
+          baseUrl: testBaseUrl,
+          token: testToken,
+          client: client,
+        );
+
+        final courses = await api.getUserCourses(999);
+
+        expect(courses, isEmpty);
+      });
+
+      test('throws MoodleApiException on Moodle error', () async {
+        final client = MockClient(_mockHandler(MockClientOptions(
+          functionOverride: 'core_enrol_get_users_courses',
+          overrideBody: MoodleFixtures.moodleException,
+        )));
+        final api = MoodleApiService(
+          baseUrl: testBaseUrl,
+          token: testToken,
+          client: client,
+        );
+
+        expect(
+          () => api.getUserCourses(1),
+          throwsA(isA<MoodleApiException>()),
         );
       });
     });
