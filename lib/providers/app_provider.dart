@@ -82,6 +82,7 @@ class AppProvider extends ChangeNotifier {
   // ---------------------------------------------------------------------------
 
   /// Fetch the current user's enrolled courses.
+  /// Tries multiple Moodle functions for robustness.
   Future<List<CourseInfo>> fetchCourses() async {
     _ensureMoodleApi();
     if (_moodleApi == null) return [];
@@ -89,15 +90,34 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
     try {
       final userId = authService.userInfo?.userId;
-      final courses = userId != null
-          ? await _moodleApi!.getUserCourses(userId)
-          : await _moodleApi!.getEnrolledCourses();
-      enrolledCourses = courses;
-      return courses;
+      List<CourseInfo> courses = [];
+      // 1) Try core_enrol_get_users_courses (most reliable for enrolled)
+      if (userId != null) {
+        try {
+          courses = await _moodleApi!.getUserCourses(userId);
+          if (courses.isNotEmpty) return _setCourses(courses);
+        } catch (_) {}
+      }
+      // 2) Fallback: core_course_get_courses (works if user has view capability)
+      try {
+        courses = await _moodleApi!.getAllCourses();
+        if (courses.isNotEmpty) return _setCourses(courses);
+      } catch (_) {}
+      // 3) Last fallback: timeline classification
+      try {
+        courses = await _moodleApi!.getEnrolledCourses();
+        if (courses.isNotEmpty) return _setCourses(courses);
+      } catch (_) {}
+      return _setCourses(courses);
     } finally {
       isLoadingCourses = false;
       notifyListeners();
     }
+  }
+
+  List<CourseInfo> _setCourses(List<CourseInfo> courses) {
+    enrolledCourses = courses;
+    return courses;
   }
 
   /// Fetch all courses (admin only).
@@ -209,8 +229,11 @@ class AppProvider extends ChangeNotifier {
 
       webviewService.buildController(config: config);
 
-      if (authService.state.value.token != null) {
-        await webviewService.injectToken(authService.state.value.token!);
+      // Pass credentials for WebView auto-login
+      final username = authService.lastUsername;
+      final password = authService.lastPassword;
+      if (username != null && password != null) {
+        webviewService.setCredentials(username, password);
       }
 
       await webviewService.loadExam(config.moodleUrl);
@@ -221,7 +244,6 @@ class AppProvider extends ChangeNotifier {
 
       notifyListeners();
     } catch (e) {
-      // Rollback lockdown if it was started
       await lockdownService.stopLockdown();
       currentConfig = null;
       _errorMessage = 'Failed to start exam: $e';

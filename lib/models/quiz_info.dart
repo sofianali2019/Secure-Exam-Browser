@@ -41,7 +41,9 @@ class QuizInfo {
     attemptsAllowed: json['attempts'] as int? ?? 0,
     gradePass: (json['gradepass'] as num?)?.toDouble(),
     sumGrades: (json['sumgrades'] as num?)?.toDouble(),
-    hasQuestions: json['hasquestions'] as bool? ?? false,
+    hasQuestions: (json['hasquestions'] is bool)
+        ? (json['hasquestions'] as bool)
+        : (json['hasquestions'] as num?)?.toInt() == 1,
     visible: json['visible'] as bool? ?? true,
   );
 

@@ -9,6 +9,9 @@ class WebviewService {
   ExamConfig? _config;
   final StreamController<Map<String, dynamic>> _moodleEvents =
       StreamController<Map<String, dynamic>>.broadcast();
+  String? _loginUsername;
+  String? _loginPassword;
+  bool _pendingLogin = false;
 
   Stream<Map<String, dynamic>> get moodleEvents => _moodleEvents.stream;
   WebViewController? get controller => _controller;
@@ -17,6 +20,12 @@ class WebviewService {
     final uri = Uri.tryParse(url);
     if (uri == null) return false;
     return allowedDomains.any((domain) => uri.host == domain);
+  }
+
+  /// Store credentials for WebView auto-login.
+  void setCredentials(String username, String password) {
+    _loginUsername = username;
+    _loginPassword = password;
   }
 
   WebViewController buildController({
@@ -29,9 +38,6 @@ class WebviewService {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (url) {
-            // Inject CSP meta tag before page content loads.
-            // This restricts scripts to same-origin and blocks inline event handlers,
-            // while allowing the MoodleBridge channel and necessary exam JS.
             _injectCsp();
             _moodleEvents.add({'event': 'page_started', 'url': url});
           },
@@ -45,11 +51,17 @@ class WebviewService {
               });
               return NavigationDecision.prevent;
             }
+            // Allow login page and exam domain
+            if (uri != null && uri.path.contains('/login/')) {
+              return NavigationDecision.navigate;
+            }
             return NavigationDecision.navigate;
           },
           onPageFinished: (url) {
             _injectMoodleBridge();
             _moodleEvents.add({'event': 'page_finished', 'url': url});
+            // Auto-login if we detect the login page
+            _handleLoginPage(url);
           },
           onWebResourceError: (error) {
             _moodleEvents.add({
@@ -73,6 +85,31 @@ class WebviewService {
       );
 
     return _controller!;
+  }
+
+  /// Detect login page and auto-fill credentials.
+  Future<void> _handleLoginPage(String url) async {
+    if (_loginUsername == null || _loginPassword == null) return;
+    if (!url.contains('/login/index.php')) return;
+    if (_pendingLogin) return;
+    _pendingLogin = true;
+
+    try {
+      await Future.delayed(const Duration(milliseconds: 500));
+      final safeUser = jsonEncode(_loginUsername);
+      final safePass = jsonEncode(_loginPassword);
+      await _controller?.runJavaScript('''
+        (function() {
+          var u = document.querySelector('input[name="username"]');
+          var p = document.querySelector('input[name="password"]');
+          if (!u || !p) return;
+          u.value = $safeUser;
+          p.value = $safePass;
+          var f = document.querySelector('form');
+          if (f) f.submit();
+        })();
+      ''');
+    } catch (_) {}
   }
 
   Future<void> loadExam(String url) async {

@@ -21,9 +21,14 @@ class AuthService {
 
   String? _baseUrl;
   UserInfo? userInfo;
+  /// In-memory credentials for WebView auto-login (never persisted).
+  String? _lastUsername;
+  String? _lastPassword;
   static const _serviceName = 'moodle_mobile_app';
 
   String? get baseUrl => _baseUrl;
+  String? get lastUsername => _lastUsername;
+  String? get lastPassword => _lastPassword;
 
   void configure({required String moodleBaseUrl}) {
     final base = moodleBaseUrl.endsWith('/')
@@ -65,6 +70,8 @@ class AuthService {
           final token = data['token'] as String;
           await _storage.write(key: _keyToken, value: token);
           await _storage.write(key: _keyBaseUrl, value: _baseUrl);
+          _lastUsername = username;
+          _lastPassword = password;
           state.value = AuthState(token: token, isAuthenticated: true);
           await fetchUserInfo();
         } else {
@@ -109,6 +116,8 @@ class AuthService {
 
   Future<void> logout() async {
     userInfo = null;
+    _lastUsername = null;
+    _lastPassword = null;
     await _storage.delete(key: _keyToken);
     state.value = const AuthState();
   }

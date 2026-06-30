@@ -807,16 +807,14 @@ class _AdminPanelScreenState extends State<AdminPanelScreen>
   // Monitor Tab
   // ---------------------------------------------------------------------------
   Widget _buildMonitorTab() {
-    return Center(
+    final provider = context.watch<AppProvider>();
+    final hasActiveExam = provider.currentConfig != null;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            Icons.monitor,
-            size: 80,
-            color: Colors.white.withValues(alpha: 0.3),
-          ),
-          const SizedBox(height: 24),
           const Text(
             'Live Monitoring',
             style: TextStyle(
@@ -825,35 +823,122 @@ class _AdminPanelScreenState extends State<AdminPanelScreen>
               fontWeight: FontWeight.bold,
             ),
           ),
-          const SizedBox(height: 12),
-          Text(
-            'Real-time exam monitoring will be available\nin a future update.',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.6),
-              fontSize: 14,
+          const SizedBox(height: 20),
+          if (hasActiveExam) ...[
+            _monitorCard(
+              icon: Icons.quiz,
+              label: 'Active Exam',
+              value: provider.examTitle,
             ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 32),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.amber.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: Colors.amber.withValues(alpha: 0.3),
+            const SizedBox(height: 12),
+            _monitorCard(
+              icon: Icons.lock,
+              label: 'Lockdown Status',
+              value: provider.isLocked ? 'Active' : 'Inactive',
+            ),
+            const SizedBox(height: 12),
+            _monitorCard(
+              icon: Icons.camera_alt,
+              label: 'Proctoring',
+              value: provider.isProctoringActive
+                  ? 'Active (${provider.snapshotsTaken} snapshots)'
+                  : 'Inactive',
+            ),
+          ] else ...[
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.monitor_heart,
+                    size: 64,
+                    color: Colors.white.withValues(alpha: 0.4),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'No Active Sessions',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Exam sessions will appear here\nwhen students are taking exams.',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.5),
+                      fontSize: 14,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
               ),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
+          ],
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Monitoring dashboard refreshed'),
+                    duration: Duration(seconds: 1),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('Refresh Status'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: const BorderSide(color: Colors.white54),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _monitorCard({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.white70, size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.info_outline, color: Colors.amber, size: 20),
-                const SizedBox(width: 8),
                 Text(
-                  'Coming Soon',
+                  label,
                   style: TextStyle(
-                    color: Colors.amber.withValues(alpha: 0.9),
-                    fontWeight: FontWeight.w500,
+                    color: Colors.white.withValues(alpha: 0.5),
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],

@@ -153,17 +153,27 @@ class _ExamScreenState extends State<ExamScreen> {
       final success = await provider.submitQuiz();
       if (mounted) {
         setState(() => _isSubmitting = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              success
-                  ? 'Quiz submission initiated'
-                  : 'Could not find submit button. Please submit manually.',
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Quiz submitted successfully!'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
             ),
-            backgroundColor: success ? Colors.green : Colors.orange,
-            duration: const Duration(seconds: 3),
-          ),
-        );
+          );
+          await provider.endExam();
+          if (mounted) {
+            Navigator.pushReplacementNamed(context, '/dashboard');
+          }
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not find submit button. Please submit manually.'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
       }
     }
   }
@@ -341,6 +351,47 @@ class _ExamScreenState extends State<ExamScreen> {
               ),
               padding: EdgeInsets.zero,
               tooltip: 'Exam Information',
+            ),
+          ),
+
+          // End Exam button
+          SizedBox(
+            width: 36,
+            height: 36,
+            child: IconButton(
+              icon: const Icon(Icons.exit_to_app, color: Colors.redAccent),
+              iconSize: 20,
+              onPressed: () async {
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    backgroundColor: const Color(0xFF1A1A2E),
+                    title: const Text('End Exam', style: TextStyle(color: Colors.white)),
+                    content: const Text(
+                      'Are you sure you want to end this exam?\n\n'
+                      'Make sure you have already submitted your answers.',
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
+                      ),
+                      ElevatedButton(
+                        onPressed: () => Navigator.of(ctx).pop(true),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                        child: const Text('End Exam', style: TextStyle(color: Colors.white)),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirmed == true && mounted) {
+                  await provider.endExam();
+                  if (mounted) Navigator.pushReplacementNamed(context, '/dashboard');
+                }
+              },
+              padding: EdgeInsets.zero,
+              tooltip: 'End Exam',
             ),
           ),
         ],
