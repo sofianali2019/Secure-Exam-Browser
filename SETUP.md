@@ -126,6 +126,8 @@ if let registrar = self.registrar(forPlugin: "LockdownPlugin") {
 
 ---
 
+> **Important:** Replace `subsaharanlms.com` in the ATS exceptions below with your actual Moodle instance domain for production builds.
+
 ## 4. iOS Permissions — Edit Info.plist
 
 Open `ios/Runner/Info.plist` and add:
@@ -139,7 +141,7 @@ Open `ios/Runner/Info.plist` and add:
     <false/>
     <key>NSExceptionDomains</key>
     <dict>
-        <key>moodle.example.com</key>
+        <key>subsaharanlms.com</key>
         <dict>
             <key>NSExceptionAllowsInsecureHTTPLoads</key>
             <false/>

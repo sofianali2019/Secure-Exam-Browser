@@ -1,16 +1,11 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_appauth/flutter_appauth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import '../config/defaults.dart';
+import 'package:http/http.dart' as http;
 import '../models/auth_state.dart';
+import '../models/user_info.dart';
 
 class AuthService {
-  final FlutterAppAuth _appAuth = const FlutterAppAuth();
-
-  // Configure FlutterSecureStorage with explicit platform-specific options.
-  // Android: Uses EncryptedSharedPreferences with AES/GCM.
-  // iOS: Uses Keychain with kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly
-  //   which requires a device passcode and prevents backup extraction.
   static final _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(),
     iOptions: IOSOptions(
@@ -18,164 +13,134 @@ class AuthService {
     ),
   );
 
-  static const _keyAccessToken = 'access_token';
-  static const _keyRefreshToken = 'refresh_token';
-  static const _keyIdToken = 'id_token';
-  static const _keyTokenType = 'token_type';
-  static const _keyExpiresAt = 'expires_at';
+  static const _keyToken = 'moodle_token';
+  static const _keyBaseUrl = 'lms_url';
 
   final ValueNotifier<AuthState> state =
       ValueNotifier<AuthState>(const AuthState());
 
-  String? _issuerUrl;
-  String? _clientId;
-  String? _redirectUrl;
-  String? _scopes;
+  String? _baseUrl;
+  UserInfo? userInfo;
+  static const _serviceName = 'moodle_mobile_app';
 
-  void configure({
-    required String moodleBaseUrl,
-    String? issuerUrl,
-    String clientId = AppDefaults.oauth2ClientId,
-    String redirectUrl = AppDefaults.oauth2RedirectUrl,
-    String scopes = AppDefaults.oauth2Scopes,
-  }) {
-    _issuerUrl = issuerUrl ?? '$moodleBaseUrl/admin/oauth2/';
-    _clientId = clientId;
-    _redirectUrl = redirectUrl;
-    _scopes = scopes;
+  String? get baseUrl => _baseUrl;
+
+  void configure({required String moodleBaseUrl}) {
+    final base = moodleBaseUrl.endsWith('/')
+        ? moodleBaseUrl.substring(0, moodleBaseUrl.length - 1)
+        : moodleBaseUrl;
+    _baseUrl = base;
   }
 
   Future<void> init() async {
-    final accessToken = await _storage.read(key: _keyAccessToken);
-    final refreshToken = await _storage.read(key: _keyRefreshToken);
-    final idToken = await _storage.read(key: _keyIdToken);
-    final tokenType = await _storage.read(key: _keyTokenType);
-    final expiresAtStr = await _storage.read(key: _keyExpiresAt);
-
-    if (accessToken != null && refreshToken != null) {
-      final expiresAt = expiresAtStr != null
-          ? DateTime.tryParse(expiresAtStr)
-          : null;
-
-      state.value = AuthState(
-        accessToken: accessToken,
-        refreshToken: refreshToken,
-        idToken: idToken,
-        tokenType: tokenType,
-        expiresAt: expiresAt,
-        isAuthenticated: true,
-      );
-
-      if (expiresAt != null && DateTime.now().isAfter(expiresAt)) {
-        await _tryRefresh();
-      }
+    final token = await _storage.read(key: _keyToken);
+    final baseUrl = await _storage.read(key: _keyBaseUrl);
+    if (token != null && baseUrl != null) {
+      _baseUrl = baseUrl;
+      state.value = AuthState(token: token, isAuthenticated: true);
     }
   }
 
-  Future<void> login() async {
-    if (_issuerUrl == null || _clientId == null || _redirectUrl == null || _scopes == null) {
-      state.value = state.value.copyWith(
-        error: 'AuthService not configured. Call configure() first.',
+  Future<void> login(String username, String password) async {
+    if (_baseUrl == null) {
+      state.value = const AuthState(
+        error: 'LMS URL not configured. Enter your LMS URL first.',
       );
       return;
     }
 
     try {
-      final result = await _appAuth.authorizeAndExchangeCode(
-        AuthorizationTokenRequest(
-          _clientId!,
-          _redirectUrl!,
-          issuer: _issuerUrl,
-          scopes: _scopes!.split(' '),
-          serviceConfiguration: AuthorizationServiceConfiguration(
-            authorizationEndpoint: '$_issuerUrl/authorize',
-            tokenEndpoint: '$_issuerUrl/token',
-          ),
-          // Ensure ephemeral session (prevents SSO reuse across apps)
-          externalUserAgent: ExternalUserAgent.ephemeralAsWebAuthenticationSession,
-        ),
+      final response = await http.post(
+        Uri.parse('$_baseUrl/login/token.php'),
+        body: {
+          'username': username,
+          'password': password,
+          'service': _serviceName,
+        },
       );
 
-      if (result.accessToken != null) {
-        await _persistTokens(result);
-        state.value = AuthState(
-          accessToken: result.accessToken,
-          refreshToken: result.refreshToken,
-          idToken: result.idToken,
-          tokenType: result.tokenType,
-          expiresAt: result.accessTokenExpirationDateTime,
-          isAuthenticated: true,
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        if (data.containsKey('token')) {
+          final token = data['token'] as String;
+          await _storage.write(key: _keyToken, value: token);
+          await _storage.write(key: _keyBaseUrl, value: _baseUrl);
+          state.value = AuthState(token: token, isAuthenticated: true);
+          await fetchUserInfo();
+        } else {
+          final errorMsg = data['error'] as String? ?? 'Unknown error';
+          state.value = AuthState(error: errorMsg);
+        }
+      } else {
+        state.value = const AuthState(
+          error: 'Login failed. Check your credentials.',
         );
       }
     } catch (e) {
-      // Log full error for debugging but expose only a generic message to the UI
       debugPrint('Login failed: $e');
-      state.value = state.value.copyWith(
-        error: 'Authentication failed. Please check your credentials and try again.',
+      state.value = const AuthState(
+        error: 'Connection failed. Check your network and LMS URL.',
       );
+    }
+  }
+
+  Future<void> fetchUserInfo() async {
+    final token = state.value.token;
+    if (_baseUrl == null || token == null) return;
+
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/webservice/rest/server.php'),
+        body: {
+          'wstoken': token,
+          'wsfunction': 'core_webservice_get_site_info',
+          'moodlewsrestformat': 'json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        userInfo = UserInfo.fromJson(data);
+      }
+    } catch (e) {
+      debugPrint('fetchUserInfo failed: $e');
+    }
+  }
+
+  Future<void> fetchEnrolledCourses() async {
+    final token = state.value.token;
+    if (_baseUrl == null || token == null) return;
+
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/webservice/rest/server.php'),
+        body: {
+          'wstoken': token,
+          'wsfunction': 'core_course_get_enrolled_courses_by_timeline_classification',
+          'moodlewsrestformat': 'json',
+          'classification': 'all',
+          'limit': '0',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        if (data.containsKey('courses')) {
+          return;
+        }
+      }
+    } catch (e) {
+      debugPrint('fetchEnrolledCourses failed: $e');
     }
   }
 
   Future<void> logout() async {
-    await _storage.deleteAll();
+    userInfo = null;
+    await _storage.delete(key: _keyToken);
     state.value = const AuthState();
   }
 
-  Future<String?> getValidAccessToken() async {
-    if (state.value.isExpired && state.value.refreshToken != null) {
-      await _tryRefresh();
-    }
-    return state.value.accessToken;
-  }
-
-  Future<void> _tryRefresh() async {
-    if (state.value.refreshToken == null) return;
-    if (_issuerUrl == null || _clientId == null || _redirectUrl == null) return;
-
-    try {
-      final result = await _appAuth.token(
-        TokenRequest(
-          _clientId!,
-          _redirectUrl!,
-          issuer: _issuerUrl,
-          refreshToken: state.value.refreshToken,
-          scopes: _scopes?.split(' '),
-          serviceConfiguration: AuthorizationServiceConfiguration(
-            authorizationEndpoint: '$_issuerUrl/authorize',
-            tokenEndpoint: '$_issuerUrl/token',
-          ),
-        ),
-      );
-
-      if (result.accessToken != null) {
-        await _persistTokens(result);
-        state.value = state.value.copyWith(
-          accessToken: result.accessToken,
-          refreshToken: result.refreshToken,
-          idToken: result.idToken,
-          tokenType: result.tokenType,
-          expiresAt: result.accessTokenExpirationDateTime,
-        );
-      }
-    } catch (e) {
-      debugPrint('Token refresh failed: $e');
-      state.value = state.value.copyWith(
-        error: 'Session expired. Please log in again.',
-      );
-    }
-  }
-
-  Future<void> _persistTokens(TokenResponse result) async {
-    final batch = <String, String>{};
-    if (result.accessToken != null) batch[_keyAccessToken] = result.accessToken!;
-    if (result.refreshToken != null) batch[_keyRefreshToken] = result.refreshToken!;
-    if (result.idToken != null) batch[_keyIdToken] = result.idToken!;
-    if (result.tokenType != null) batch[_keyTokenType] = result.tokenType!;
-    if (result.accessTokenExpirationDateTime != null) {
-      batch[_keyExpiresAt] = result.accessTokenExpirationDateTime!.toIso8601String();
-    }
-    for (final entry in batch.entries) {
-      await _storage.write(key: entry.key, value: entry.value);
-    }
+  Future<String?> getValidToken() async {
+    return state.value.token;
   }
 }

@@ -7,13 +7,13 @@ void main() {
   group('ExamConfig', () {
     test('parses from JSON correctly', () {
       final json = {
-        'moodleUrl': 'https://moodle.example.com',
+        'moodleUrl': 'https://subsaharanlms.com',
         'examDurationMinutes': 90,
         'proctoringEnabled': true,
         'proctoringIntervalSeconds': 15,
       };
       final config = ExamConfig.fromJson(json);
-      expect(config.moodleUrl, 'https://moodle.example.com');
+      expect(config.moodleUrl, 'https://subsaharanlms.com');
       expect(config.examDurationMinutes, 90);
       expect(config.proctoringEnabled, true);
       expect(config.proctoringIntervalSeconds, 15);
@@ -37,7 +37,7 @@ void main() {
 
     test('toJson and fromJson round-trip', () {
       const original = ExamConfig(
-        moodleUrl: 'https://moodle.example.com',
+        moodleUrl: 'https://subsaharanlms.com',
         examDurationMinutes: 45,
         proctoringEnabled: true,
         blockScreenshots: false,
@@ -94,35 +94,22 @@ void main() {
     test('defaults to unauthenticated', () {
       const state = AuthState();
       expect(state.isAuthenticated, false);
-      expect(state.accessToken, isNull);
+      expect(state.token, isNull);
       expect(state.error, isNull);
     });
 
-    test('isExpired returns true when past expiry', () {
-      final state = AuthState(
-        accessToken: 'token',
-        expiresAt: DateTime(2020, 1, 1),
-        isAuthenticated: true,
-      );
-      expect(state.isExpired, true);
+    test('can be created with token and authenticated', () {
+      const state = AuthState(token: 'moodle_token_123', isAuthenticated: true);
+      expect(state.isAuthenticated, true);
+      expect(state.token, 'moodle_token_123');
+      expect(state.error, isNull);
     });
 
-    test('isExpired returns false when no expiry set', () {
-      const state = AuthState(isAuthenticated: true);
-      expect(state.isExpired, false);
-    });
-
-    test('copyWith preserves unset fields', () {
-      const state = AuthState(accessToken: 'old_token');
-      final copied = state.copyWith(refreshToken: 'new_refresh');
-      expect(copied.accessToken, 'old_token');
-      expect(copied.refreshToken, 'new_refresh');
-    });
-
-    test('copyWith overrides set fields', () {
-      const state = AuthState(accessToken: 'old_token');
-      final copied = state.copyWith(accessToken: 'new_token');
-      expect(copied.accessToken, 'new_token');
+    test('can carry an error message', () {
+      const state = AuthState(error: 'Invalid credentials');
+      expect(state.isAuthenticated, false);
+      expect(state.token, isNull);
+      expect(state.error, 'Invalid credentials');
     });
   });
 }

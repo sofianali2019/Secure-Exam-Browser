@@ -91,9 +91,49 @@ class _ExamScreenState extends State<ExamScreen> {
                     ? WebViewWidget(
                         controller: provider.webviewController!,
                       )
-                    : const Center(
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
+                    : Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.check_circle_outline,
+                              size: 64,
+                              color: Colors.white.withValues(alpha: 0.8),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Signed in to ${provider.moodleBaseUrl}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'No exam is running',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.6),
+                                fontSize: 14,
+                              ),
+                            ),
+                            const SizedBox(height: 32),
+                            OutlinedButton.icon(
+                              onPressed: () =>
+                                  Navigator.pushReplacementNamed(
+                                    context,
+                                    provider.authState.isAuthenticated
+                                        ? '/dashboard'
+                                        : '/login',
+                                  ),
+                              icon: const Icon(Icons.arrow_back, size: 18),
+                              label: const Text('Back'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                side: const BorderSide(color: Colors.white54),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
               ),
