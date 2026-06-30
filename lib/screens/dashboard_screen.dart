@@ -65,56 +65,28 @@ class DashboardScreen extends StatelessWidget {
                 icon: Icons.admin_panel_settings,
                 title: 'Administrator',
                 subtitle: 'You have full access to site settings and exam management',
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Admin panel will be available in a future update'),
-                      duration: Duration(seconds: 3),
-                    ),
-                  );
-                },
+                onTap: () => Navigator.pushNamed(context, '/admin-panel'),
               ),
             if (isAdmin) const SizedBox(height: 16),
             _buildCard(
               icon: Icons.school,
               title: 'My Exams',
               subtitle: 'View and attempt your available exams',
-              onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Exam list will be available in a future update'),
-                    duration: Duration(seconds: 3),
-                  ),
-                );
-              },
+              onTap: () => Navigator.pushNamed(context, '/exam-list'),
             ),
             const SizedBox(height: 16),
             _buildCard(
               icon: Icons.qr_code_scanner,
               title: 'Scan QR Code',
               subtitle: 'Configure an exam by scanning a QR code',
-              onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('QR scanning will be available in a future update'),
-                    duration: Duration(seconds: 3),
-                  ),
-                );
-              },
+              onTap: () => Navigator.pushNamed(context, '/qr-scanner'),
             ),
             const SizedBox(height: 16),
             _buildCard(
               icon: Icons.key,
               title: 'Enter Config Key',
               subtitle: 'Configure an exam using a configuration key',
-              onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Config key entry will be available in a future update'),
-                    duration: Duration(seconds: 3),
-                  ),
-                );
-              },
+              onTap: () => Navigator.pushNamed(context, '/config-key'),
             ),
             if (userInfo != null) ...[
               const SizedBox(height: 32),

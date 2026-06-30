@@ -53,7 +53,7 @@ class ExamConfig {
       };
 
   factory ExamConfig.fromJson(Map<String, dynamic> json) => ExamConfig(
-        moodleUrl: json['moodleUrl'] as String,
+        moodleUrl: json['moodleUrl'] as String? ?? '',
         examDurationMinutes: json['examDurationMinutes'] as int? ?? 60,
         proctoringEnabled: json['proctoringEnabled'] as bool? ?? false,
         proctoringIntervalSeconds:

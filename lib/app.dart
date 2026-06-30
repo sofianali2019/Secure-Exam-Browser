@@ -4,6 +4,11 @@ import 'screens/login_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/exam_screen.dart';
 import 'screens/results_screen.dart';
+import 'screens/exam_list_screen.dart';
+import 'screens/exam_detail_screen.dart';
+import 'screens/qr_scanner_screen.dart';
+import 'screens/config_key_screen.dart';
+import 'screens/admin_panel_screen.dart';
 
 class SecureExamBrowserApp extends StatelessWidget {
   const SecureExamBrowserApp({super.key});
@@ -27,6 +32,11 @@ class SecureExamBrowserApp extends StatelessWidget {
         '/dashboard': (_) => const DashboardScreen(),
         '/exam': (_) => const ExamScreen(),
         '/results': (_) => const ResultsScreen(),
+        '/exam-list': (_) => const ExamListScreen(),
+        '/exam-detail': (_) => const ExamDetailScreen(),
+        '/qr-scanner': (_) => const QrScannerScreen(),
+        '/config-key': (_) => const ConfigKeyScreen(),
+        '/admin-panel': (_) => const AdminPanelScreen(),
       },
     );
   }

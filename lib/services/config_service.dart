@@ -18,6 +18,15 @@ class ConfigService {
   }
 
   Future<ExamConfig?> decodeConfigKey(String configKey) async {
+    // Try local base64 decode first (works on all platforms)
+    try {
+      final localConfig = _localBase64Decode(configKey);
+      if (localConfig != null) return localConfig;
+    } catch (_) {
+      // Fall through to platform channel
+    }
+
+    // Then try platform channel
     try {
       final decoded = await _channel.invokeMethod<String>('decodeConfigKey', {
         'key': configKey,
@@ -25,7 +34,30 @@ class ConfigService {
       if (decoded == null) return null;
       return parseSebConfig(decoded);
     } on PlatformException catch (e) {
-      debugPrint('Config key decode failed: ${e.message}');
+      debugPrint('Config key decode failed (PlatformException): ${e.message}');
+      return null;
+    } on MissingPluginException catch (e) {
+      debugPrint('Config key decode failed (MissingPluginException): ${e.message}');
+      return null;
+    }
+  }
+
+  /// Attempts to decode a config key using local base64 decoding.
+  ExamConfig? _localBase64Decode(String key) {
+    try {
+      String decoded;
+      try {
+        decoded = utf8.decode(base64Url.decode(key));
+      } catch (_) {
+        decoded = utf8.decode(base64.decode(key));
+      }
+      final json = jsonDecode(decoded);
+      if (json is Map<String, dynamic>) {
+        return _parseConfigMap(json);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Local base64 decode failed: $e');
       return null;
     }
   }
@@ -50,6 +82,7 @@ class ConfigService {
           .toList();
     }
 
+    // Enforce minimum lockdown: critical security features are always on.
     return ExamConfig(
       moodleUrl: moodleUrl,
       examDurationMinutes: map['duration'] as int? ??
@@ -61,24 +94,16 @@ class ConfigService {
       proctoringIntervalSeconds: map['proctoringInterval'] as int? ??
           map['proctoringIntervalSeconds'] as int? ??
           30,
-      blockScreenshots:
-          (lockdown['blockScreenshots'] as bool?) ??
-          (map['allowScreenshots'] != true),
-      blockAppSwitching:
-          (lockdown['blockAppSwitching'] as bool?) ??
-          (map['allowAppSwitch'] != true),
-      blockNotifications:
-          (lockdown['blockNotifications'] as bool?) ??
-          (map['allowNotifications'] != true),
+      blockScreenshots: true,
+      blockAppSwitching: true,
+      blockNotifications: true,
       blockKeyboardShortcuts:
           (lockdown['blockKeyboardShortcuts'] as bool?) ??
           (map['allowShortcuts'] != true),
       blockRightClick:
           (lockdown['blockRightClick'] as bool?) ??
           (map['allowRightClick'] != true),
-      fullscreenOnly:
-          (lockdown['fullscreenOnly'] as bool?) ??
-          (map['allowWindowed'] != true),
+      fullscreenOnly: true,
       allowedDomains: allowedDomains,
       configKey: map['configKey'] as String?,
       examTitle: map['title'] as String? ?? map['examTitle'] as String?,
