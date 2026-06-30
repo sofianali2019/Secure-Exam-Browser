@@ -6,7 +6,7 @@ import '../models/auth_state.dart';
 import '../models/user_info.dart';
 
 class AuthService {
-  static final _storage = FlutterSecureStorage(
+  static const _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(),
     iOptions: IOSOptions(
       accessibility: KeychainAccessibility.passcode,
@@ -104,33 +104,6 @@ class AuthService {
       }
     } catch (e) {
       debugPrint('fetchUserInfo failed: $e');
-    }
-  }
-
-  Future<void> fetchEnrolledCourses() async {
-    final token = state.value.token;
-    if (_baseUrl == null || token == null) return;
-
-    try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/webservice/rest/server.php'),
-        body: {
-          'wstoken': token,
-          'wsfunction': 'core_course_get_enrolled_courses_by_timeline_classification',
-          'moodlewsrestformat': 'json',
-          'classification': 'all',
-          'limit': '0',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
-        if (data.containsKey('courses')) {
-          return;
-        }
-      }
-    } catch (e) {
-      debugPrint('fetchEnrolledCourses failed: $e');
     }
   }
 
