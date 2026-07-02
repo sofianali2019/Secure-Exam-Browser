@@ -40,7 +40,7 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
         fullscreenOnly: true,
       );
 
-      await provider.startExam(config);
+      await provider.startNativeExam(quiz.id, config);
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/exam');
       }

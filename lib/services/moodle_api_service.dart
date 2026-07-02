@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 import '../models/course_info.dart';
 import '../models/quiz_info.dart';
@@ -17,6 +18,8 @@ class MoodleApiService {
   final String baseUrl;
   final String token;
   final http.Client _client;
+  /// Set true to log raw API responses for debugging course fetching.
+  static bool debugCourseFetching = false;
 
   MoodleApiService({
     required this.baseUrl,
@@ -67,6 +70,9 @@ class MoodleApiService {
     int limit = 0,
     int offset = 0,
   }) async {
+    if (debugCourseFetching) {
+      debugPrint('MoodleApi: getEnrolledCourses classification=$classification');
+    }
     final data = await _call(
       function: 'core_course_get_enrolled_courses_by_timeline_classification',
       params: {
@@ -75,6 +81,9 @@ class MoodleApiService {
         'offset': offset.toString(),
       },
     );
+    if (debugCourseFetching) {
+      debugPrint('MoodleApi: getEnrolledCourses response keys=${data.keys}');
+    }
     final coursesJson = data['courses'] as List<dynamic>? ?? [];
     return coursesJson
         .map((e) => CourseInfo.fromJson(e as Map<String, dynamic>))
@@ -82,6 +91,9 @@ class MoodleApiService {
   }
 
   Future<List<CourseInfo>> getUserCourses(int userId) async {
+    if (debugCourseFetching) {
+      debugPrint('MoodleApi: getUserCourses userId=$userId');
+    }
     final params = <String, dynamic>{
       'userid': userId.toString(),
     };
@@ -105,6 +117,9 @@ class MoodleApiService {
     }
 
     final decoded = jsonDecode(response.body);
+    if (debugCourseFetching) {
+      debugPrint('MoodleApi: getUserCourses raw response type=${decoded.runtimeType} body=${response.body.length < 500 ? response.body : '${response.body.substring(0, 500)}...'}');
+    }
     if (decoded is Map && decoded.containsKey('exception')) {
       throw MoodleApiException(
         decoded['message'] as String? ?? 'Moodle error',
@@ -152,6 +167,9 @@ class MoodleApiService {
   }
 
   Future<List<CourseInfo>> getAllCourses() async {
+    if (debugCourseFetching) {
+      debugPrint('MoodleApi: getAllCourses');
+    }
     final body = <String, dynamic>{
       'wstoken': token,
       'wsfunction': 'core_course_get_courses',
@@ -171,6 +189,9 @@ class MoodleApiService {
     }
 
     final decoded = jsonDecode(response.body);
+    if (debugCourseFetching) {
+      debugPrint('MoodleApi: getAllCourses raw response type=${decoded.runtimeType} body=${response.body.length < 500 ? response.body : '${response.body.substring(0, 500)}...'}');
+    }
     if (decoded is Map && decoded.containsKey('exception')) {
       throw MoodleApiException(
         decoded['message'] as String? ?? 'Moodle error',
@@ -189,6 +210,69 @@ class MoodleApiService {
     return await _call(
       function: 'mod_quiz_get_quiz_access_information',
       params: {'quizid': quizId.toString()},
+    );
+  }
+
+  /// Start a new quiz attempt.
+  Future<Map<String, dynamic>> startAttempt(int quizId, {Map<String, String>? preflightData}) async {
+    final params = <String, dynamic>{
+      'quizid': quizId.toString(),
+    };
+    if (preflightData != null) {
+      var i = 0;
+      for (final entry in preflightData.entries) {
+        params['preflightdata[$i][name]'] = entry.key;
+        params['preflightdata[$i][value]'] = entry.value;
+        i++;
+      }
+    }
+    return await _call(
+      function: 'mod_quiz_start_attempt',
+      params: params,
+    );
+  }
+
+  /// Get attempt data (questions) for a specific page.
+  Future<Map<String, dynamic>> getAttemptData(int attemptId, int page) async {
+    return await _call(
+      function: 'mod_quiz_get_attempt_data',
+      params: {
+        'attemptid': attemptId.toString(),
+        'page': page.toString(),
+      },
+    );
+  }
+
+  /// Process (save or submit) answers for an attempt page.
+  Future<Map<String, dynamic>> processAttempt({
+    required int attemptId,
+    required List<Map<String, String>> data,
+    bool finish = false,
+    bool timeUp = false,
+  }) async {
+    final params = <String, dynamic>{
+      'attemptid': attemptId.toString(),
+      'finish': finish ? '1' : '0',
+      'timeup': timeUp ? '1' : '0',
+    };
+    for (var i = 0; i < data.length; i++) {
+      params['data[$i][name]'] = data[i]['name'] ?? '';
+      params['data[$i][value]'] = data[i]['value'] ?? '';
+    }
+    return await _call(
+      function: 'mod_quiz_process_attempt',
+      params: params,
+    );
+  }
+
+  /// Mark an attempt page as viewed.
+  Future<Map<String, dynamic>> viewAttempt(int attemptId, int page) async {
+    return await _call(
+      function: 'mod_quiz_view_attempt',
+      params: {
+        'attemptid': attemptId.toString(),
+        'page': page.toString(),
+      },
     );
   }
 }

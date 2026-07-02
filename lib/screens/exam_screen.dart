@@ -1,13 +1,8 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 import '../providers/app_provider.dart';
-import '../models/lockdown_state.dart';
-import '../widgets/lockdown_indicator.dart';
-import '../widgets/proctoring_overlay.dart';
-import '../widgets/exam_timer.dart';
-import '../widgets/exam_info_overlay.dart';
+import '../providers/exam_provider.dart';
+import '../widgets/questions/question_card.dart';
 
 class ExamScreen extends StatefulWidget {
   const ExamScreen({super.key});
@@ -17,191 +12,64 @@ class ExamScreen extends StatefulWidget {
 }
 
 class _ExamScreenState extends State<ExamScreen> {
-  StreamSubscription<LockdownViolation>? _violationSub;
-  StreamSubscription<Map<String, dynamic>>? _moodleEventSub;
-  double _progress = 0;
-  bool _hasWebViewError = false;
-  String? _webViewErrorDescription;
+  final PageController _pageController = PageController();
   bool _isSubmitting = false;
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _setupListeners());
-  }
-
-  void _setupListeners() {
-    final provider = context.read<AppProvider>();
-
-    _violationSub = provider.violations.listen((v) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Lockdown violation: ${v.type.name}'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-    });
-
-    _moodleEventSub = provider.moodleEvents.listen((event) {
-      if (!mounted) return;
-      final eventType = event['event'] as String?;
-
-      switch (eventType) {
-        case 'page_started':
-          setState(() {
-            _progress = 0;
-            _hasWebViewError = false;
-            _webViewErrorDescription = null;
-          });
-          break;
-        case 'page_finished':
-          setState(() => _progress = 1);
-          break;
-        case 'resource_error':
-          setState(() {
-            _hasWebViewError = true;
-            _webViewErrorDescription =
-                event['description'] as String? ?? 'Failed to load page';
-          });
-          break;
-        case 'quiz_submit_clicked':
-          debugPrint('Quiz submit button clicked by user');
-          break;
-        case 'timer_warning':
-          debugPrint('Moodle timer warning detected: ${event['source']}');
-          break;
-        case 'bridge_ready':
-          debugPrint('Moodle JS bridge initialized');
-          break;
-        case 'navigation_blocked':
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Navigation blocked by lockdown rules'),
-                backgroundColor: Colors.orange,
-                duration: Duration(seconds: 2),
-              ),
-            );
-          }
-          break;
-        case 'visibility_change':
-          if (event['visible'] == false && mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Exam tab visibility changed'),
-                backgroundColor: Colors.orange,
-                duration: Duration(seconds: 2),
-              ),
-            );
-          }
-          break;
-      }
-    });
-  }
-
-  Future<void> _handleSubmitQuiz() async {
-    final provider = context.read<AppProvider>();
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1A1A2E),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: const BorderSide(color: Colors.white24),
-        ),
-        title: const Text(
-          'Submit Quiz',
-          style: TextStyle(color: Colors.white, fontSize: 20),
-        ),
-        content: const Text(
-          'Are you sure you want to submit your quiz?\n\n'
-          'This action cannot be undone.',
-          style: TextStyle(color: Colors.white70, fontSize: 15),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(color: Colors.white60, fontSize: 16),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            child: const Text(
-              'Submit',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true && mounted) {
-      setState(() => _isSubmitting = true);
-      final success = await provider.submitQuiz();
-      if (mounted) {
-        setState(() => _isSubmitting = false);
-        if (success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Quiz submitted successfully!'),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 2),
-            ),
-          );
-          await provider.endExam();
-          if (mounted) {
-            Navigator.pushReplacementNamed(context, '/dashboard');
-          }
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Could not find submit button. Please submit manually.'),
-              backgroundColor: Colors.orange,
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-      }
-    }
-  }
-
-  void _handleTimeExpired() {
-    if (!mounted) return;
-    ExamTimer.showTimeExpiredDialog(context, () {
-      _handleSubmitQuiz();
-    });
-  }
-
-  @override
   void dispose() {
-    _violationSub?.cancel();
-    _moodleEventSub?.cancel();
+    _pageController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<AppProvider>();
-    final lockdownStatus = provider.lockdownStatus;
-    final proctoringActive = provider.isProctoringActive;
-    final isExamActive = provider.webviewController != null;
-    final config = provider.currentConfig;
+    final appProvider = context.watch<AppProvider>();
+    final exam = appProvider.examProvider;
+
+    if (appProvider.currentConfig == null && exam == null) {
+      return _buildNoExam(context, appProvider);
+    }
+
+    // Config-only mode (QR/config key / admin launch without quiz ID).
+    if (exam == null) {
+      return _buildConfigOnlyMode(context, appProvider);
+    }
+
+    if (exam.isFinished) {
+      return _buildFinishedView(exam, appProvider);
+    }
+
+    if (exam.isLoading && exam.questions.isEmpty) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (exam.errorMessage != null && exam.questions.isEmpty) {
+      return Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline, size: 64, color: Colors.redAccent),
+                const SizedBox(height: 16),
+                Text(exam.errorMessage!, textAlign: TextAlign.center),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Go Back'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     return PopScope(
-      canPop: !provider.isLocked,
+      canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -213,68 +81,14 @@ class _ExamScreenState extends State<ExamScreen> {
         }
       },
       child: Scaffold(
-        backgroundColor: Colors.black,
+        backgroundColor: const Color(0xFFF8F9FA),
         body: SafeArea(
-          child: Stack(
+          child: Column(
             children: [
-              // ── Main column layout ──
-              Column(
-                children: [
-                  // Top toolbar (when exam is active)
-                  if (isExamActive) _buildExamToolbar(provider, config),
-
-                  // Lockdown status indicator (non-locked states)
-                  if (isExamActive &&
-                      lockdownStatus != LockdownStatus.locked)
-                    LockdownIndicator(status: lockdownStatus),
-
-                  // Progress indicator
-                  if (_progress > 0 && _progress < 1)
-                    LinearProgressIndicator(
-                      value: _progress,
-                      backgroundColor: Colors.grey[800],
-                      valueColor: const AlwaysStoppedAnimation<Color>(
-                        Colors.white,
-                      ),
-                    ),
-
-                  // Main content area
-                  Expanded(
-                    child: isExamActive
-                        ? _buildExamContent(provider)
-                        : _buildWelcomeState(provider),
-                  ),
-
-                  // Proctoring overlay
-                  if (proctoringActive) const ProctoringOverlay(),
-                ],
-              ),
-
-              // ── Submit FAB (above proctoring) ──
-              if (isExamActive)
-                Positioned(
-                  right: 16,
-                  bottom: 80,
-                  child: AnimatedOpacity(
-                    opacity: _hasWebViewError ? 0.0 : 1.0,
-                    duration: const Duration(milliseconds: 300),
-                    child: FloatingActionButton.small(
-                      onPressed: _hasWebViewError ? null : _handleSubmitQuiz,
-                      backgroundColor: Colors.white,
-                      foregroundColor: const Color(0xFF1A237E),
-                      child: _isSubmitting
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Color(0xFF1A237E),
-                              ),
-                            )
-                          : const Icon(Icons.check),
-                    ),
-                  ),
-                ),
+              _buildTopBar(exam),
+              _buildPageIndicator(exam),
+              Expanded(child: _buildQuestionPages(exam)),
+              _buildBottomBar(exam),
             ],
           ),
         ),
@@ -282,301 +96,399 @@ class _ExamScreenState extends State<ExamScreen> {
     );
   }
 
-  /// Builds the compact exam toolbar with lock icon, title, timer, and info button.
-  Widget _buildExamToolbar(AppProvider provider, dynamic config) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.05),
-        border: Border(
-          bottom: BorderSide(
-            color: Colors.white.withValues(alpha: 0.1),
+  Widget _buildNoExam(BuildContext context, AppProvider appProvider) {
+    return Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.info_outline, size: 64, color: Colors.grey),
+            const SizedBox(height: 16),
+            const Text('No active exam'),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pushNamedAndRemoveUntil(
+                  context,
+                  appProvider.authState.isAuthenticated ? '/dashboard' : '/login',
+                  (_) => false,
+                );
+              },
+              child: const Text('Go to Dashboard'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Shown when exam is started via QR/config key (no native question data).
+  Widget _buildConfigOnlyMode(BuildContext context, AppProvider appProvider) {
+    final config = appProvider.currentConfig!;
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Cannot exit during an active exam'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFF1A1A2E),
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.lock, size: 72, color: Colors.green),
+                  const SizedBox(height: 24),
+                  Text(
+                    config.examTitle ?? 'Configured Exam',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Exam configuration loaded',
+                    style: TextStyle(color: Colors.white60, fontSize: 15),
+                  ),
+                  const SizedBox(height: 32),
+                  _infoRow('Duration', '${config.examDurationMinutes} min'),
+                  _infoRow('Proctoring', config.proctoringEnabled ? 'Enabled' : 'Disabled'),
+                  _infoRow('Fullscreen', config.fullscreenOnly ? 'Required' : 'Optional'),
+                  const SizedBox(height: 32),
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      final confirmed = await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Text('End Exam Session'),
+                          content: const Text('Are you sure you want to end this exam session?'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(false),
+                              child: const Text('Cancel'),
+                            ),
+                            ElevatedButton(
+                              onPressed: () => Navigator.of(ctx).pop(true),
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                              child: const Text('End', style: TextStyle(color: Colors.white)),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirmed == true && mounted) {
+                        await appProvider.endExam();
+                        if (mounted) {
+                          Navigator.pushNamedAndRemoveUntil(context, '/dashboard', (_) => false);
+                        }
+                      }
+                    },
+                    icon: const Icon(Icons.exit_to_app, size: 18),
+                    label: const Text('End Exam Session'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.redAccent,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _infoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text('$label: ',
+              style: const TextStyle(color: Colors.white54, fontSize: 14)),
+          Text(value,
+              style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTopBar(ExamProvider exam) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1A2E),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
       child: Row(
         children: [
-          // Lock icon
-          Icon(
-            provider.isLocked ? Icons.lock : Icons.lock_open,
-            color: provider.isLocked ? Colors.green : Colors.grey,
-            size: 16,
-          ),
+          const Icon(Icons.lock, color: Colors.green, size: 16),
           const SizedBox(width: 8),
-
-          // Exam title (truncated)
-          Expanded(
+          const Expanded(
             child: Text(
-              provider.examTitle,
-              style: const TextStyle(
+              'Secure Exam',
+              style: TextStyle(
                 color: Colors.white,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          const SizedBox(width: 8),
-
-          // Timer
-          if (provider.examStartTime != null && config != null)
-            ExamTimer(
-              durationMinutes: config.examDurationMinutes,
-              startTime: provider.examStartTime!,
-              onTimeExpired: _handleTimeExpired,
-            ),
-
-          const SizedBox(width: 4),
-
-          // Info button
-          SizedBox(
-            width: 36,
-            height: 36,
-            child: IconButton(
-              icon: const Icon(Icons.info_outline, color: Colors.white70),
-              iconSize: 20,
-              onPressed: () => ExamInfoOverlay.show(
-                context: context,
-                examTitle: provider.examTitle,
-                moodleUrl: config?.moodleUrl ?? '',
-                durationMinutes: config?.examDurationMinutes ?? 0,
-                startTime: provider.examStartTime ?? DateTime.now(),
-                proctoringEnabled: config?.proctoringEnabled ?? false,
-                blockScreenshots: config?.blockScreenshots ?? false,
-                blockAppSwitching: config?.blockAppSwitching ?? false,
-                blockNotifications: config?.blockNotifications ?? false,
-                fullscreenOnly: config?.fullscreenOnly ?? false,
+          if (exam.remainingSeconds > 0)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: exam.remainingSeconds < 300
+                    ? Colors.red.withValues(alpha: 0.2)
+                    : Colors.white.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
               ),
-              padding: EdgeInsets.zero,
-              tooltip: 'Exam Information',
-            ),
-          ),
-
-          // End Exam button
-          SizedBox(
-            width: 36,
-            height: 36,
-            child: IconButton(
-              icon: const Icon(Icons.exit_to_app, color: Colors.redAccent),
-              iconSize: 20,
-              onPressed: () async {
-                final confirmed = await showDialog<bool>(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    backgroundColor: const Color(0xFF1A1A2E),
-                    title: const Text('End Exam', style: TextStyle(color: Colors.white)),
-                    content: const Text(
-                      'Are you sure you want to end this exam?\n\n'
-                      'Make sure you have already submitted your answers.',
-                      style: TextStyle(color: Colors.white70),
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.of(ctx).pop(false),
-                        child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
-                      ),
-                      ElevatedButton(
-                        onPressed: () => Navigator.of(ctx).pop(true),
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-                        child: const Text('End Exam', style: TextStyle(color: Colors.white)),
-                      ),
-                    ],
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.timer_outlined,
+                    size: 16,
+                    color: exam.remainingSeconds < 300
+                        ? Colors.redAccent
+                        : Colors.white70,
                   ),
-                );
-                if (confirmed == true && mounted) {
-                  await provider.endExam();
-                  if (mounted) Navigator.pushReplacementNamed(context, '/dashboard');
-                }
-              },
-              padding: EdgeInsets.zero,
-              tooltip: 'End Exam',
+                  const SizedBox(width: 4),
+                  Text(
+                    exam.formattedTime,
+                    style: TextStyle(
+                      color: exam.remainingSeconds < 300
+                          ? Colors.redAccent
+                          : Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPageIndicator(ExamProvider exam) {
+    final answered =
+        exam.questions.where((q) => exam.getAnswer(q.slot).isNotEmpty).length;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: Colors.white,
+      child: Row(
+        children: [
+          Text(
+            'Page ${exam.currentPage + 1}',
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '(${exam.questions.length} question${exam.questions.length == 1 ? '' : 's'})',
+            style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+          ),
+          const Spacer(),
+          Text(
+            '$answered/${exam.questions.length} answered',
+            style: TextStyle(fontSize: 13, color: Colors.grey[600]),
           ),
         ],
       ),
     );
   }
 
-  /// Builds the WebView content area with error overlay if needed.
-  Widget _buildExamContent(AppProvider provider) {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 400),
-      child: _hasWebViewError
-          ? _buildConnectionLostOverlay(provider)
-          : Stack(
-              key: const ValueKey('webview'),
-              children: [
-                WebViewWidget(
-                  controller: provider.webviewController!,
-                ),
-                // Submission overlay
-                if (_isSubmitting)
-                  Container(
-                    color: Colors.black54,
-                    child: const Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          CircularProgressIndicator(
-                            color: Colors.white,
-                          ),
-                          SizedBox(height: 16),
-                          Text(
-                            'Submitting quiz...',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
-            ),
+  Widget _buildQuestionPages(ExamProvider exam) {
+    return PageView.builder(
+      controller: _pageController,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: exam.questions.length,
+      itemBuilder: (context, index) {
+        final question = exam.questions[index];
+        return SingleChildScrollView(
+          padding: const EdgeInsets.only(bottom: 24),
+          child: QuestionCard(
+            question: question,
+            currentAnswer: exam.getAnswer(question.slot),
+            isFlagged: exam.isFlagged(question.slot),
+            onAnswerChanged: (value) => exam.setAnswer(question.slot, value),
+            onToggleFlag: () => exam.toggleFlag(question.slot),
+          ),
+        );
+      },
     );
   }
 
-  /// Connection lost overlay with error info and retry button.
-  Widget _buildConnectionLostOverlay(AppProvider provider) {
-    return Center(
-      key: const ValueKey('error'),
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+  Widget _buildBottomBar(ExamProvider exam) {
+    final page = _pageController.hasClients ? _pageController.page!.toInt() : 0;
+    final isFirst = page == 0;
+    final isLast = page >= exam.questions.length - 1;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 8,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Row(
           children: [
-            Icon(
-              Icons.cloud_off,
-              size: 72,
-              color: Colors.white.withValues(alpha: 0.6),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'Connection Lost',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
+            if (!isFirst)
+              TextButton.icon(
+                onPressed: () {
+                  _pageController.animateToPage(
+                    page - 1,
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeInOut,
+                  );
+                },
+                icon: const Icon(Icons.arrow_back, size: 18),
+                label: const Text('Previous'),
+              )
+            else
+              const SizedBox(width: 80),
+            const Spacer(),
             Text(
-              _webViewErrorDescription ??
-                  'Unable to load the exam page.\nPlease check your connection.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.6),
-                fontSize: 14,
-              ),
+              '${page + 1} / ${exam.questions.length}',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
             ),
-            const SizedBox(height: 32),
-            OutlinedButton.icon(
-              onPressed: _retryLoad,
-              icon: const Icon(Icons.refresh, size: 18),
-              label: const Text('Retry'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.white,
-                side: const BorderSide(color: Colors.white54),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
+            const Spacer(),
+            if (!isLast)
+              TextButton.icon(
+                onPressed: () {
+                  _pageController.animateToPage(
+                    page + 1,
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeInOut,
+                  );
+                },
+                icon: const Icon(Icons.arrow_forward, size: 18),
+                label: const Text('Next'),
+              )
+            else
+              ElevatedButton.icon(
+                onPressed: _isSubmitting ? null : () => _handleSubmit(exam),
+                icon: _isSubmitting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.check, size: 18),
+                label: Text(_isSubmitting ? 'Submitting...' : 'Submit All'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
               ),
-            ),
           ],
         ),
       ),
     );
   }
 
-  Future<void> _retryLoad() async {
-    final provider = context.read<AppProvider>();
-    setState(() {
-      _hasWebViewError = false;
-      _webViewErrorDescription = null;
-    });
-    if (provider.currentConfig != null) {
-      await provider.webviewService
-          .loadExam(provider.currentConfig!.moodleUrl);
+  Future<void> _handleSubmit(ExamProvider exam) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Submit All Answers'),
+        content: const Text(
+          'Are you sure you want to submit all your answers?\n\n'
+          'This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            child: const Text('Submit', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      setState(() => _isSubmitting = true);
+      await exam.submitAttempt();
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
     }
   }
 
-  /// Welcome state shown when no exam is running.
-  Widget _buildWelcomeState(AppProvider provider) {
-    return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // Animated icon
-            TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0.8, end: 1.0),
-              duration: const Duration(milliseconds: 800),
-              builder: (context, value, child) {
-                return Transform.scale(
-                  scale: value,
-                  child: child,
-                );
-              },
-              child: Icon(
-                Icons.check_circle_outline,
-                size: 72,
-                color: Colors.white.withValues(alpha: 0.8),
+  Widget _buildFinishedView(ExamProvider exam, AppProvider appProvider) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FA),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.check_circle, size: 80, color: Colors.green),
+              const SizedBox(height: 24),
+              const Text(
+                'Exam Submitted',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'Signed in to ${provider.moodleBaseUrl}',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
+              const SizedBox(height: 8),
+              Text(
+                'Your answers have been submitted successfully.',
+                style: TextStyle(fontSize: 15, color: Colors.grey[600]),
+                textAlign: TextAlign.center,
               ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              'No exam is running',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.5),
-                fontSize: 15,
+              const SizedBox(height: 32),
+              ElevatedButton(
+                onPressed: () async {
+                  await appProvider.endExam();
+                  if (mounted) {
+                    Navigator.pushNamedAndRemoveUntil(
+                      context,
+                      '/dashboard',
+                      (_) => false,
+                    );
+                  }
+                },
+                child: const Text('Back to Dashboard'),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Return to the dashboard to start an exam.',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.35),
-                fontSize: 13,
-              ),
-            ),
-            const SizedBox(height: 40),
-            OutlinedButton.icon(
-              onPressed: () => Navigator.pushReplacementNamed(
-                context,
-                provider.authState.isAuthenticated
-                    ? '/dashboard'
-                    : '/login',
-              ),
-              icon: const Icon(Icons.arrow_back, size: 18),
-              label: const Text('Back to Dashboard'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.white,
-                side: const BorderSide(color: Colors.white38),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 28,
-                  vertical: 14,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

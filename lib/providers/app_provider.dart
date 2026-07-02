@@ -1,16 +1,15 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 import '../config/defaults.dart';
 import '../models/course_info.dart';
 import '../models/exam_config.dart';
 import '../models/auth_state.dart';
 import '../models/lockdown_state.dart';
 import '../models/quiz_info.dart';
+import '../providers/exam_provider.dart';
 import '../services/auth_service.dart';
 import '../services/lockdown_service.dart';
-import '../services/webview_service.dart';
 import '../services/proctoring_service.dart';
 import '../services/config_service.dart';
 import '../services/moodle_api_service.dart';
@@ -21,7 +20,6 @@ class AppProvider extends ChangeNotifier {
 
   final AuthService authService = AuthService();
   final LockdownService lockdownService = LockdownService();
-  final WebviewService webviewService = WebviewService();
   final ProctoringService proctoringService = ProctoringService();
   final ConfigService configService = ConfigService();
 
@@ -29,6 +27,7 @@ class AppProvider extends ChangeNotifier {
 
   ExamConfig? currentConfig;
   DateTime? examStartTime;
+  ExamProvider? _examProvider;
   bool _isInitialized = false;
   bool _isLoginInProgress = false;
   String? _errorMessage;
@@ -51,8 +50,18 @@ class AppProvider extends ChangeNotifier {
   bool get isProctoringActive => proctoringService.isActive.value;
   int get snapshotsTaken => proctoringService.snapshotsTaken.value;
   Stream<LockdownViolation> get violations => lockdownService.violations;
-  Stream<Map<String, dynamic>> get moodleEvents => webviewService.moodleEvents;
-  WebViewController? get webviewController => webviewService.controller;
+  ExamProvider? get examProvider => _examProvider;
+
+  void _setExamProvider(ExamProvider? provider) {
+    _examProvider?.removeListener(_onExamProviderChanged);
+    _examProvider = provider;
+    _examProvider?.addListener(_onExamProviderChanged);
+    notifyListeners();
+  }
+
+  void _onExamProviderChanged() {
+    notifyListeners();
+  }
 
   /// The exam title from the current config, or a fallback.
   String get examTitle => currentConfig?.examTitle ?? 'Untitled Exam';
@@ -96,18 +105,24 @@ class AppProvider extends ChangeNotifier {
         try {
           courses = await _moodleApi!.getUserCourses(userId);
           if (courses.isNotEmpty) return _setCourses(courses);
-        } catch (_) {}
+        } catch (e) {
+          debugPrint('fetchCourses: getUserCourses failed: $e');
+        }
       }
       // 2) Fallback: core_course_get_courses (works if user has view capability)
       try {
         courses = await _moodleApi!.getAllCourses();
         if (courses.isNotEmpty) return _setCourses(courses);
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('fetchCourses: getAllCourses failed: $e');
+      }
       // 3) Last fallback: timeline classification
       try {
         courses = await _moodleApi!.getEnrolledCourses();
         if (courses.isNotEmpty) return _setCourses(courses);
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('fetchCourses: getEnrolledCourses failed: $e');
+      }
       return _setCourses(courses);
     } finally {
       isLoadingCourses = false;
@@ -219,24 +234,17 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  /// Start an exam via WebView (URL-based, used for QR/config/admin flows).
   Future<void> startExam(ExamConfig config) async {
+    _examProvider?.dispose();
+    _setExamProvider(null);
+
     try {
       currentConfig = config;
       examStartTime = DateTime.now();
       notifyListeners();
 
       await lockdownService.startLockdown(config);
-
-      webviewService.buildController(config: config);
-
-      // Pass credentials for WebView auto-login
-      final username = authService.lastUsername;
-      final password = authService.lastPassword;
-      if (username != null && password != null) {
-        webviewService.setCredentials(username, password);
-      }
-
-      await webviewService.loadExam(config.moodleUrl);
 
       if (config.proctoringEnabled) {
         await proctoringService.start(config: config);
@@ -252,8 +260,39 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  Future<bool> submitQuiz() async {
-    return webviewService.submitQuiz();
+  /// Start a native exam (no WebView) using the Moodle REST API.
+  Future<void> startNativeExam(int quizId, ExamConfig config) async {
+    _ensureMoodleApi();
+    if (_moodleApi == null) throw Exception('Moodle API not available');
+
+    _setExamProvider(ExamProvider(api: _moodleApi!));
+
+    try {
+      currentConfig = config;
+      examStartTime = DateTime.now();
+      notifyListeners();
+
+      await lockdownService.startLockdown(config);
+      await _examProvider!.startAttempt(quizId);
+
+      if (_examProvider!.errorMessage != null) {
+        throw Exception(_examProvider!.errorMessage);
+      }
+
+      if (config.proctoringEnabled) {
+        await proctoringService.start(config: config);
+      }
+
+      notifyListeners();
+    } catch (e) {
+      await lockdownService.stopLockdown();
+      _examProvider?.dispose();
+      _setExamProvider(null);
+      currentConfig = null;
+      _errorMessage = 'Failed to start exam: $e';
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> endExam() async {
@@ -267,7 +306,8 @@ class AppProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('Lockdown stop error: $e');
     }
-    webviewService.dispose();
+    _examProvider?.dispose();
+    _setExamProvider(null);
     currentConfig = null;
     _errorMessage = null;
     notifyListeners();
@@ -276,7 +316,7 @@ class AppProvider extends ChangeNotifier {
   @override
   void dispose() {
     _moodleApi?.dispose();
-    webviewService.dispose();
+    _examProvider?.dispose();
     proctoringService.dispose();
     lockdownService.dispose();
     super.dispose();

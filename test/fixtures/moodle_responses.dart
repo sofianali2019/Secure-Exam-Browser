@@ -189,6 +189,46 @@ class MoodleFixtures {
   };
 
   // ---------------------------------------------------------------------------
+  // core_webservice_get_site_info + login token responses
+  // ---------------------------------------------------------------------------
+
+  /// Login token response from /login/token.php (with privatetoken).
+  static Map<String, dynamic> get loginTokenResponse => {
+    'token': 'moodle_token_abc123',
+    'privatetoken': 'private_token_xyz789',
+  };
+
+  /// Response for tool_mobile_get_autologin_key.
+  static Map<String, dynamic> get autologinKeyResponse => {
+    'key': 'autologin_key_abc123',
+    'autologinurl': 'https://subsaharanlms.com/admin/tool/mobile/autologin.php?userid=5&key=autologin_key_abc123',
+  };
+
+  /// Site info response for user info.
+  static Map<String, dynamic> get siteInfoResponse => {
+    'siteid': 'site1',
+    'sitename': 'Test Site',
+    'username': 'testuser',
+    'firstname': 'Test',
+    'lastname': 'User',
+    'fullname': 'Test User',
+    'language': 'en',
+    'userid': 5,
+    'siteurl': 'https://subsaharanlms.com',
+    'userpictureurl': 'https://subsaharanlms.com/user/pix.php/5/f1.jpg',
+    'functions': [],
+    'downloadfiles': 1,
+    'uploadfiles': 1,
+    'release': '4.5.0',
+    'version': '2025032400',
+    'mobilecssurl': '',
+    'advancedfeatures': [],
+    'usercanmanageownfiles': true,
+    'userissiteadmin': false,
+    'supportpagecontents': '',
+  };
+
+  // ---------------------------------------------------------------------------
   // Pre-encoded JSON strings
   // ---------------------------------------------------------------------------
 
@@ -204,4 +244,7 @@ class MoodleFixtures {
   static String get quizAccessInfoJson => jsonEncode(quizAccessInfo);
   static String get moodleExceptionJson => jsonEncode(moodleException);
   static String get invalidTokenErrorJson => jsonEncode(invalidTokenError);
+  static String get loginTokenResponseJson => jsonEncode(loginTokenResponse);
+  static String get autologinKeyResponseJson => jsonEncode(autologinKeyResponse);
+  static String get siteInfoResponseJson => jsonEncode(siteInfoResponse);
 }

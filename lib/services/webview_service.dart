@@ -6,12 +6,9 @@ import '../models/exam_config.dart';
 
 class WebviewService {
   WebViewController? _controller;
-  ExamConfig? _config;
   final StreamController<Map<String, dynamic>> _moodleEvents =
       StreamController<Map<String, dynamic>>.broadcast();
-  String? _loginUsername;
-  String? _loginPassword;
-  bool _pendingLogin = false;
+  static const _moodleUserAgent = 'MoodleMobile';
 
   Stream<Map<String, dynamic>> get moodleEvents => _moodleEvents.stream;
   WebViewController? get controller => _controller;
@@ -22,23 +19,15 @@ class WebviewService {
     return allowedDomains.any((domain) => uri.host == domain);
   }
 
-  /// Store credentials for WebView auto-login.
-  void setCredentials(String username, String password) {
-    _loginUsername = username;
-    _loginPassword = password;
-  }
-
   WebViewController buildController({
     required ExamConfig config,
   }) {
-    _config = config;
-
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setUserAgent(_moodleUserAgent)
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (url) {
-            _injectCsp();
             _moodleEvents.add({'event': 'page_started', 'url': url});
           },
           onNavigationRequest: (request) {
@@ -51,17 +40,11 @@ class WebviewService {
               });
               return NavigationDecision.prevent;
             }
-            // Allow login page and exam domain
-            if (uri != null && uri.path.contains('/login/')) {
-              return NavigationDecision.navigate;
-            }
             return NavigationDecision.navigate;
           },
           onPageFinished: (url) {
             _injectMoodleBridge();
             _moodleEvents.add({'event': 'page_finished', 'url': url});
-            // Auto-login if we detect the login page
-            _handleLoginPage(url);
           },
           onWebResourceError: (error) {
             _moodleEvents.add({
@@ -87,79 +70,9 @@ class WebviewService {
     return _controller!;
   }
 
-  /// Detect login page and auto-fill credentials.
-  Future<void> _handleLoginPage(String url) async {
-    if (_loginUsername == null || _loginPassword == null) return;
-    if (!url.contains('/login/index.php')) return;
-    if (_pendingLogin) return;
-    _pendingLogin = true;
-
-    try {
-      await Future.delayed(const Duration(milliseconds: 500));
-      final safeUser = jsonEncode(_loginUsername);
-      final safePass = jsonEncode(_loginPassword);
-      await _controller?.runJavaScript('''
-        (function() {
-          var u = document.querySelector('input[name="username"]');
-          var p = document.querySelector('input[name="password"]');
-          if (!u || !p) return;
-          u.value = $safeUser;
-          p.value = $safePass;
-          var f = document.querySelector('form');
-          if (f) f.submit();
-        })();
-      ''');
-    } catch (_) {}
-  }
-
   Future<void> loadExam(String url) async {
+    debugPrint('WebviewService.loadExam: loading $url');
     await _controller?.loadRequest(Uri.parse(url));
-  }
-
-  Future<void> injectToken(String token) async {
-    if (_config == null) return;
-    final domain = Uri.parse(_config!.moodleUrl).host;
-    // Use jsonEncode to safely escape strings for JavaScript interpolation.
-    // This prevents JS injection if the token or domain contains special characters.
-    final safeToken = jsonEncode(token);
-    final safeDomain = jsonEncode(domain);
-    final js = '''
-      (function() {
-        var token = $safeToken;
-        var domain = $safeDomain;
-        document.cookie = "MOODLEID1_=" + token + "; domain=" + domain + "; path=/; secure; SameSite=Strict";
-        document.cookie = "MoodleSession=" + token + "; domain=" + domain + "; path=/; secure; SameSite=Strict";
-      })();
-    ''';
-    await _controller?.runJavaScript(js);
-  }
-
-  Future<void> _injectCsp() async {
-    // Strict CSP that allows the page's own scripts and the MoodleBridge channel.
-    // 'unsafe-eval' is needed by some Moodle versions for JS templates.
-    // Note: the nonce or hash approach would be stronger but requires Moodle changes.
-    const csp = '''
-      (function() {
-        var meta = document.createElement('meta');
-        meta.httpEquiv = 'Content-Security-Policy';
-        meta.content = "default-src 'self' https:; " +
-          "script-src 'self' 'unsafe-eval' https:; " +
-          "style-src 'self' 'unsafe-inline' https:; " +
-          "img-src 'self' https: data:; " +
-          "connect-src 'self' https:; " +
-          "frame-src 'self' https:; " +
-          "object-src 'none'; " +
-          "base-uri 'self'; " +
-          "form-action 'self' https:; " +
-          "report-uri /csp-report;";
-        document.head.appendChild(meta);
-      })();
-    ''';
-    try {
-      await _controller?.runJavaScript(csp);
-    } catch (_) {
-      // CSP injection is best-effort; page will still load without it.
-    }
   }
 
   Future<void> _injectMoodleBridge() async {
